@@ -1,12 +1,10 @@
 import request from 'supertest';
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import * as jose from 'jose';
 import { authenticateCognito } from '../../middleware/auth';
 
-// Mock jose to avoid actual AWS calls during testing
-jest.mock('jose');
-const mockedJose = jest.mocked(jose);
+// Import the mocked jose module directly
+const jose = require('../mocks/jose.js');
 
 describe('Cognito Authentication Integration Tests', () => {
   let app: express.Application;
@@ -46,8 +44,8 @@ describe('Cognito Authentication Integration Tests', () => {
       };
 
       const mockJwks = jest.fn() as any;
-      mockedJose.createRemoteJWKSet.mockReturnValue(mockJwks);
-      mockedJose.jwtVerify.mockResolvedValue({
+      jose.createRemoteJWKSet.mockReturnValue(mockJwks);
+      jose.jwtVerify.mockResolvedValue({
         payload: mockPayload,
         protectedHeader: {}
       } as any);
@@ -74,8 +72,8 @@ describe('Cognito Authentication Integration Tests', () => {
     it('should reject request with invalid JWT token', async () => {
       // Mock JWT verification to fail
       const mockJwks = jest.fn() as any;
-      mockedJose.createRemoteJWKSet.mockReturnValue(mockJwks);
-      mockedJose.jwtVerify.mockRejectedValue(new Error('Invalid token'));
+      jose.createRemoteJWKSet.mockReturnValue(mockJwks);
+      jose.jwtVerify.mockRejectedValue(new Error('Invalid token'));
 
       const response = await request(app)
         .get('/api/protected')
@@ -92,8 +90,8 @@ describe('Cognito Authentication Integration Tests', () => {
       expiredError.name = 'JWTExpired';
       
       const mockJwks = jest.fn() as any;
-      mockedJose.createRemoteJWKSet.mockReturnValue(mockJwks);
-      mockedJose.jwtVerify.mockRejectedValue(expiredError);
+      jose.createRemoteJWKSet.mockReturnValue(mockJwks);
+      jose.jwtVerify.mockRejectedValue(expiredError);
 
       const response = await request(app)
         .get('/api/protected')
@@ -128,8 +126,8 @@ describe('Cognito Authentication Integration Tests', () => {
         iat: Math.floor(Date.now() / 1000)
       };
 
-      mockedJose.createRemoteJWKSet.mockReturnValue(jest.fn() as any);
-      mockedJose.jwtVerify.mockResolvedValue({
+      jose.createRemoteJWKSet.mockReturnValue(jest.fn() as any);
+      jose.jwtVerify.mockResolvedValue({
         payload: mockPayload,
         protectedHeader: {}
       } as any);
@@ -154,8 +152,8 @@ describe('Cognito Authentication Integration Tests', () => {
       };
 
       const mockJwks = jest.fn() as any;
-      mockedJose.createRemoteJWKSet.mockReturnValue(mockJwks);
-      mockedJose.jwtVerify.mockResolvedValue({
+      jose.createRemoteJWKSet.mockReturnValue(mockJwks);
+      jose.jwtVerify.mockResolvedValue({
         payload: mockPayload,
         protectedHeader: {}
       } as any);
@@ -164,7 +162,7 @@ describe('Cognito Authentication Integration Tests', () => {
         .get('/api/protected')
         .set('Authorization', 'Bearer valid-token');
 
-      expect(mockedJose.jwtVerify).toHaveBeenCalledWith(
+      expect(jose.jwtVerify).toHaveBeenCalledWith(
         'valid-token',
         mockJwks,
         {
@@ -206,8 +204,8 @@ describe('Cognito Authentication Integration Tests', () => {
       };
 
       const mockJwks = jest.fn() as any;
-      mockedJose.createRemoteJWKSet.mockReturnValue(mockJwks);
-      mockedJose.jwtVerify.mockResolvedValue({
+      jose.createRemoteJWKSet.mockReturnValue(mockJwks);
+      jose.jwtVerify.mockResolvedValue({
         payload: mockPayload,
         protectedHeader: {}
       } as any);
@@ -216,7 +214,7 @@ describe('Cognito Authentication Integration Tests', () => {
         .get('/api/protected')
         .set('Authorization', 'Bearer actual-jwt-token');
 
-      expect(mockedJose.jwtVerify).toHaveBeenCalledWith(
+      expect(jose.jwtVerify).toHaveBeenCalledWith(
         'actual-jwt-token', // Should have Bearer prefix stripped
         expect.any(Function),
         expect.any(Object)

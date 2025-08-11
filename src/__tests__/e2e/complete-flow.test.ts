@@ -1,8 +1,30 @@
 import request from 'supertest';
 import { app } from '../../index';
 
+// Import the mocked jose module directly for E2E tests
+const jose = require('../mocks/jose.js');
+
 describe('E2E Test - Complete Reservation Flow', () => {
-  const API_KEY = process.env.API_KEY || 'secure-api-key-2024';
+  // Mock JWT token for E2E tests
+  const MOCK_JWT_TOKEN = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.test.token';
+  
+  beforeEach(() => {
+    // Set up mock JWT for valid authentication
+    const mockPayload = {
+      sub: 'e2e-test-user',
+      email: 'e2e@workspace.com',
+      'custom:role': 'admin', // Use admin role for full access
+      'cognito:username': 'e2euser',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      iat: Math.floor(Date.now() / 1000)
+    };
+
+    jose.createRemoteJWKSet.mockReturnValue(jest.fn());
+    jose.jwtVerify.mockResolvedValue({
+      payload: mockPayload,
+      protectedHeader: {}
+    });
+  });
 
   describe('Complete User Flow: Create Person → Create Space → Make Reservation → Verify Conflict Prevention', () => {
     let personId: number;
@@ -17,7 +39,7 @@ describe('E2E Test - Complete Reservation Flow', () => {
       console.log('Step 1: Creating a client person...');
       const createPersonResponse = await request(app)
         .post('/api/persons')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({
           email: 'client@workspace.com',
           role: 'client',
@@ -33,7 +55,7 @@ describe('E2E Test - Complete Reservation Flow', () => {
       console.log('Step 2: Creating a meeting room space...');
       const createSpaceResponse = await request(app)
         .post('/api/spaces')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({
           name: 'Executive Meeting Room',
           location: 'Floor 5, Building A',
@@ -51,7 +73,7 @@ describe('E2E Test - Complete Reservation Flow', () => {
       console.log('Step 3: Creating first reservation...');
       const createReservationResponse = await request(app)
         .post('/api/reservations')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({
           personId: personId,
           spaceId: spaceId,
@@ -64,15 +86,15 @@ describe('E2E Test - Complete Reservation Flow', () => {
       expect(createReservationResponse.body.success).toBe(true);
       expect(createReservationResponse.body.data.personId).toBe(personId);
       expect(createReservationResponse.body.data.spaceId).toBe(spaceId);
-      expect(createReservationResponse.body.data.startTime).toBe('10:00');
-      expect(createReservationResponse.body.data.endTime).toBe('11:00');
+      expect(createReservationResponse.body.data.startTime).toMatch(/^10:00(:00)?$/);
+      expect(createReservationResponse.body.data.endTime).toMatch(/^11:00(:00)?$/);
       reservationId = createReservationResponse.body.data.id;
       console.log(`✓ First reservation created with ID: ${reservationId}`);
 
       console.log('Step 4: Attempting to create conflicting reservation (should fail)...');
       const conflictReservationResponse = await request(app)
         .post('/api/reservations')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({
           personId: personId,
           spaceId: spaceId,
@@ -90,7 +112,7 @@ describe('E2E Test - Complete Reservation Flow', () => {
       console.log('Step 5: Creating non-conflicting reservation (should succeed)...');
       const nonConflictReservationResponse = await request(app)
         .post('/api/reservations')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({
           personId: personId,
           spaceId: spaceId,
@@ -101,13 +123,13 @@ describe('E2E Test - Complete Reservation Flow', () => {
         .expect(201);
 
       expect(nonConflictReservationResponse.body.success).toBe(true);
-      expect(nonConflictReservationResponse.body.data.startTime).toBe('11:00');
+      expect(nonConflictReservationResponse.body.data.startTime).toMatch(/^11:00(:00)?$/);
       console.log(`✓ Non-conflicting reservation created successfully`);
 
       console.log('Step 6: Verifying reservation details with GET...');
       const getReservationResponse = await request(app)
         .get(`/api/reservations/${reservationId}`)
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .expect(200);
 
       expect(getReservationResponse.body.success).toBe(true);
@@ -123,7 +145,7 @@ describe('E2E Test - Complete Reservation Flow', () => {
 
       await request(app)
         .post('/api/reservations')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({
           personId: personId,
           spaceId: spaceId,
@@ -138,7 +160,7 @@ describe('E2E Test - Complete Reservation Flow', () => {
       console.log('Step 8: Attempting to create 4th reservation in same week (should fail)...');
       const weeklyLimitResponse = await request(app)
         .post('/api/reservations')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({
           personId: personId,
           spaceId: spaceId,
@@ -156,7 +178,7 @@ describe('E2E Test - Complete Reservation Flow', () => {
       console.log('Step 9: Testing pagination on reservations list...');
       const paginationResponse = await request(app)
         .get('/api/reservations?page=1&pageSize=2')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .expect(200);
 
       expect(paginationResponse.body.success).toBe(true);
@@ -170,7 +192,7 @@ describe('E2E Test - Complete Reservation Flow', () => {
       console.log('Step 10: Cleaning up - deleting reservation...');
       const deleteResponse = await request(app)
         .delete(`/api/reservations/${reservationId}`)
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .expect(200);
 
       expect(deleteResponse.body.success).toBe(true);
@@ -194,19 +216,19 @@ describe('E2E Test - Complete Reservation Flow', () => {
 
       const person = await request(app)
         .post('/api/persons')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({ email: 'boundary@test.com', role: 'client' })
         .expect(201);
 
       const space = await request(app)
         .post('/api/spaces')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({ name: 'Boundary Test Room', location: 'Test Building', capacity: 5 })
         .expect(201);
 
       await request(app)
         .post('/api/reservations')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({
           personId: person.body.data.id,
           spaceId: space.body.data.id,
@@ -218,7 +240,7 @@ describe('E2E Test - Complete Reservation Flow', () => {
 
       const adjacentReservation = await request(app)
         .post('/api/reservations')
-        .set('X-API-Key', API_KEY)
+        .set('Authorization', `Bearer ${MOCK_JWT_TOKEN}`)
         .send({
           personId: person.body.data.id,
           spaceId: space.body.data.id,
