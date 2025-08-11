@@ -20,7 +20,7 @@ concurrency:
 env:
   IMAGE_NAME: backend-api
   IMAGE_REGISTRY: ghcr.io
-  WORKING_DIR: test1
+  # WORKING_DIR is now determined dynamically (root or test1) – keep default for reference only
   CONTAINER_NAME: workspace-api
   HOST_PORT: 3001
   CONTAINER_PORT: 3000
@@ -47,36 +47,57 @@ jobs:
           echo "version=${SHA_TAG}" >> "$GITHUB_OUTPUT"
           echo "Image tag: ${SHA_TAG}"
 
+      - name: Determine working directory
+        id: workdir
+        run: |
+          if [ -f test1/package.json ]; then
+            echo "Detected nested test1 project"
+            echo "dir=test1" >> $GITHUB_OUTPUT
+          elif [ -f package.json ]; then
+            echo "Detected project at repository root"
+            echo "dir=." >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: No package.json found at root or in test1/" >&2
+            ls -1
+            exit 1
+          fi
+          echo "Using working directory: $(grep '^dir=' $GITHUB_OUTPUT | cut -d= -f2)"
+
       - name: Verify lockfile path
         run: |
           echo "Verifying existence of dependency lock file before setup-node cache step"
-          if [ ! -f "test1/package-lock.json" ]; then
-            echo "ERROR: test1/package-lock.json not found. Ensure it is committed." >&2
-            echo "Repository tree:" >&2
+          if [ -f package-lock.json ]; then
+            echo "Found lockfile at root:"; ls -l package-lock.json; FOUND=1; fi
+          if [ -f test1/package-lock.json ]; then
+            echo "Found lockfile in test1/:"; ls -l test1/package-lock.json; FOUND=1; fi
+          if [ -z "$FOUND" ]; then
+            echo "ERROR: No package-lock.json found at root or in test1/." >&2
+            echo "Repository tree (top 100 lines):" >&2
             ls -R | head -100
             exit 1
           fi
-          ls -l test1/package-lock.json
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          # Accept either root or nested lockfile path (whichever exists)
           cache-dependency-path: |
+            package-lock.json
             test1/package-lock.json
 
       - name: Install dependencies
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ steps.workdir.outputs.dir }}
         run: npm ci
 
       - name: Run tests
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ steps.workdir.outputs.dir }}
         env:
-          DB_HOST: localhost
-          DB_NAME: test_db
-          DB_USER: test_user
-          DB_PASSWORD: test_password
+          DB_HOST: "${{ secrets.DB_HOST }}"
+          DB_NAME: "${{ secrets.DB_NAME }}"
+          DB_USER: "${{ secrets.DB_USER }}"
+          DB_PASSWORD: "${{ secrets.DB_PASSWORD }}"
         run: |
           npm test -- --passWithNoTests
 
@@ -93,8 +114,8 @@ jobs:
       - name: Build & Push Image
         uses: docker/build-push-action@v5
         with:
-          context: ${{ env.WORKING_DIR }}
-          file: ${{ env.WORKING_DIR }}/Dockerfile
+          context: ${{ steps.workdir.outputs.dir }}
+          file: ${{ steps.workdir.outputs.dir }}/Dockerfile
           push: true
           platforms: linux/amd64
           tags: |
