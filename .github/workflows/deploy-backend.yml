@@ -130,6 +130,9 @@ jobs:
           chmod 600 key.pem
           PORT="${{ secrets.EC2_SSH_PORT }}"
           if [ -z "$PORT" ]; then PORT=22; fi
+          # Ensure the ~/.ssh directory exists before writing known_hosts (fixes: No such file or directory)
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           ssh-keyscan -p "$PORT" -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Deploy container via SSH
