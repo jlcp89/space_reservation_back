@@ -1,0 +1,202 @@
+name: Backend CI & Deploy
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'test1/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why trigger the deploy?'
+        required: false
+        default: 'manual'
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: backend-api
+  IMAGE_REGISTRY: ghcr.io
+  WORKING_DIR: test1
+  CONTAINER_NAME: workspace-api
+  HOST_PORT: 3001
+  CONTAINER_PORT: 3000
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build-test-push:
+    name: Build, Test & Push Image
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive image meta
+        id: meta
+        run: |
+          SHA_TAG=${GITHUB_SHA::12}
+          echo "version=${SHA_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Image tag: ${SHA_TAG}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npm ci
+
+      - name: Run tests
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          DB_HOST: localhost
+          DB_NAME: test_db
+          DB_USER: test_user
+          DB_PASSWORD: test_password
+        run: |
+          npm test -- --passWithNoTests
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.WORKING_DIR }}
+          file: ${{ env.WORKING_DIR }}/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.IMAGE_REGISTRY }}/${{ github.repository }}:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE_REGISTRY }}/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-test-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    environment: production
+    steps:
+      - name: Checkout (for scripts if needed)
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+          chmod 600 key.pem
+          PORT="${{ secrets.EC2_SSH_PORT }}"
+          if [ -z "$PORT" ]; then PORT=22; fi
+          ssh-keyscan -p "$PORT" -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy container via SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_PORT: ${{ secrets.EC2_SSH_PORT }}
+          IMAGE_REGISTRY: ${{ env.IMAGE_REGISTRY }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.build-test-push.outputs.image-tag }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+          HOST_PORT: ${{ env.HOST_PORT }}
+          CONTAINER_PORT: ${{ env.CONTAINER_PORT }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
+          COGNITO_APP_CLIENT_ID: ${{ secrets.COGNITO_APP_CLIENT_ID }}
+          COGNITO_REGION: ${{ secrets.COGNITO_REGION }}
+          NODE_ENV: production
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          set -e
+          PORT="${EC2_PORT:-22}"
+          REMOTE_IMAGE="${IMAGE_REGISTRY}/${REPO}:${TAG}"
+          echo "Creating env file for remote deployment"
+          cat > app_deploy.env <<EOF
+          NODE_ENV=${NODE_ENV}
+          PORT=${CONTAINER_PORT}
+          DB_HOST=${DB_HOST}
+          DB_NAME=${DB_NAME}
+          DB_USER=${DB_USER}
+          DB_PASSWORD=${DB_PASSWORD}
+          COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID}
+          COGNITO_APP_CLIENT_ID=${COGNITO_APP_CLIENT_ID}
+          COGNITO_REGION=${COGNITO_REGION}
+          EOF
+          echo "Transferring env file to EC2 (${EC2_HOST})"
+          scp -i key.pem -P "$PORT" app_deploy.env "$EC2_USER@$EC2_HOST:/tmp/workspace-api.env"
+          echo "Executing remote deployment for image $REMOTE_IMAGE"
+          ssh -i key.pem -p "$PORT" "$EC2_USER@$EC2_HOST" <<EOF
+            set -euo pipefail
+            APP_DIR=/opt/workspace-api
+            CONTAINER_NAME="${CONTAINER_NAME}"
+            HOST_PORT="${HOST_PORT}"
+            CONTAINER_PORT="${CONTAINER_PORT}"
+            REMOTE_IMAGE="${REMOTE_IMAGE}"
+            echo "[EC2] Preparing directory"
+            sudo mkdir -p "${APP_DIR}"
+            sudo mv /tmp/workspace-api.env "${APP_DIR}/.env"
+            sudo chown "${USER}:${USER}" "${APP_DIR}/.env" || true
+            echo "[EC2] Docker login"
+            echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin || true
+            echo "[EC2] Pulling image $REMOTE_IMAGE"
+            docker pull "$REMOTE_IMAGE"
+            if docker ps -q --filter name=${CONTAINER_NAME} | grep -q .; then docker stop ${CONTAINER_NAME} || true; fi
+            if docker ps -aq --filter name=${CONTAINER_NAME} | grep -q .; then docker rm ${CONTAINER_NAME} || true; fi
+            echo "[EC2] Starting container"
+            docker run -d \
+              --name ${CONTAINER_NAME} \
+              --env-file "${APP_DIR}/.env" \
+              -p ${HOST_PORT}:${CONTAINER_PORT} \
+              --restart unless-stopped \
+              ${REMOTE_IMAGE}
+            echo "[EC2] Pruning old images"
+            docker image prune -f --filter until=168h || true
+            echo "[EC2] Deployment complete"
+          EOF
+
+      - name: Post-deploy health check
+        run: |
+          echo "Waiting for service to become healthy..."
+          for i in {1..10}; do
+            if curl -fsS "http://${{ secrets.EC2_HOST }}:${{ env.HOST_PORT }}/api/health" | grep -qi 'healthy\|ok\|success'; then
+              echo "Health check passed"; exit 0; fi
+            sleep 5
+          done
+          echo "Health check failed" >&2
+          exit 1
+
+      - name: Summary
+        run: |
+          echo "Deployed image ghcr.io/${{ github.repository }}:${{ needs.build-test-push.outputs.image-tag }} to ${{ secrets.EC2_HOST }}:${{ env.HOST_PORT }}" >> $GITHUB_STEP_SUMMARY
+
+# Repository Secrets Needed:
+#   EC2_HOST, EC2_USER, EC2_SSH_KEY, (optional) EC2_SSH_PORT
+#   DB_HOST, DB_NAME, DB_USER, DB_PASSWORD
+#   COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID, COGNITO_REGION
+# Notes:
+# - Uses GitHub Container Registry (GHCR). Make repo public or configure PAT if private & cross-org.
+# - Adjust HOST_PORT/CONTAINER_PORT as required.

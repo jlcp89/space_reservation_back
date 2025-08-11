@@ -1,0 +1,54 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: workspace-db
+    restart: unless-stopped
+    # Rely on .env file for values (Compose auto-loads .env). Removed insecure default for password.
+    environment:
+      POSTGRES_DB: ${DB_NAME:-app_db}
+      POSTGRES_USER: ${DB_USER:-app_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # must be provided via .env or environment
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/pgdata
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5434:5432" # changed from 5433 to avoid conflict with root-level stack
+    networks:
+      - workspace-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d app_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js API Application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: workspace-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: db  # Override for Docker network
+      DB_NAME: ${DB_NAME:-app_db}
+      # DB_USER / DB_PASSWORD sourced from .env via env_file/.env implicit
+    ports:
+      - "3001:3000"
+    networks:
+      - workspace-network
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  workspace-network:
+    driver: bridge
