@@ -182,8 +182,8 @@ jobs:
           echo "Transferring files to EC2 (${EC2_HOST})"
           scp -i key.pem -P "$PORT" app_deploy.env "$EC2_USER@$EC2_HOST:/tmp/workspace-api.env"
           scp -i key.pem -P "$PORT" docker-compose.prod.yml "$EC2_USER@$EC2_HOST:/tmp/docker-compose.prod.yml"
-          scp -i key.pem -P "$PORT" ./test1/docker-compose.yml "$EC2_USER@$EC2_HOST:/tmp/docker-compose.yml"
-          scp -i key.pem -P "$PORT" ./test1/init-db.sql "$EC2_USER@$EC2_HOST:/tmp/init-db.sql"
+          scp -i key.pem -P "$PORT" docker-compose.yml "$EC2_USER@$EC2_HOST:/tmp/docker-compose.yml"
+          scp -i key.pem -P "$PORT" init-db.sql "$EC2_USER@$EC2_HOST:/tmp/init-db.sql"
           echo "Executing remote deployment with docker-compose"
           ssh -i key.pem -p "$PORT" "$EC2_USER@$EC2_HOST" <<REMOTE_SCRIPT
           set -euo pipefail
