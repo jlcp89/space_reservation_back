@@ -47,12 +47,24 @@ jobs:
           echo "version=${SHA_TAG}" >> "$GITHUB_OUTPUT"
           echo "Image tag: ${SHA_TAG}"
 
+      - name: Verify lockfile path
+        run: |
+          echo "Verifying existence of dependency lock file before setup-node cache step"
+          if [ ! -f "test1/package-lock.json" ]; then
+            echo "ERROR: test1/package-lock.json not found. Ensure it is committed." >&2
+            echo "Repository tree:" >&2
+            ls -R | head -100
+            exit 1
+          fi
+          ls -l test1/package-lock.json
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
+          cache-dependency-path: |
+            test1/package-lock.json
 
       - name: Install dependencies
         working-directory: ${{ env.WORKING_DIR }}
