@@ -215,11 +215,11 @@ jobs:
           echo "[EC2] Pulling \$REMOTE_IMAGE"
           docker pull "\$REMOTE_IMAGE"
           echo "[EC2] Stopping existing containers"
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml down || true
-          echo "[EC2] Starting containers with docker-compose"
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml down || true
+          echo "[EC2] Starting containers with docker compose"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
           echo "[EC2] Waiting for database to be ready"
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db pg_isready -U app_user -d app_db || sleep 10
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db pg_isready -U app_user -d app_db || sleep 10
           docker image prune -f --filter until=168h || true
           echo "[EC2] Deployment complete"
           REMOTE_SCRIPT
