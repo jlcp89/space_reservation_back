@@ -174,26 +174,32 @@ jobs:
           echo "Executing remote deployment for image $REMOTE_IMAGE"
           ssh -i key.pem -p "$PORT" "$EC2_USER@$EC2_HOST" <<REMOTE_SCRIPT
           set -euo pipefail
-          APP_DIR=/opt/workspace-api
-          echo "[EC2] APP_DIR=$APP_DIR"
-          if [ -z "$APP_DIR" ]; then
+          APP_DIR="/opt/workspace-api"
+          REMOTE_IMAGE="${REMOTE_IMAGE}"
+          CONTAINER_NAME="${CONTAINER_NAME}"
+          HOST_PORT="${HOST_PORT}"
+          CONTAINER_PORT="${CONTAINER_PORT}"
+          GITHUB_TOKEN="${GITHUB_TOKEN}"
+          GITHUB_ACTOR="${GITHUB_ACTOR}"
+          echo "[EC2] APP_DIR=\$APP_DIR"
+          if [ -z "\$APP_DIR" ]; then
             echo "[EC2][ERROR] APP_DIR empty" >&2
             exit 11
           fi
-          sudo mkdir -p "$APP_DIR"
+          sudo mkdir -p "\$APP_DIR"
           if [ ! -s /tmp/workspace-api.env ]; then
             echo "[EC2][WARN] /tmp/workspace-api.env missing or empty" >&2
           fi
-          sudo mv /tmp/workspace-api.env "$APP_DIR/.env" || true
-          sudo chown ec2-user:ec2-user "$APP_DIR/.env" || true
+          sudo mv /tmp/workspace-api.env "\$APP_DIR/.env" || true
+          sudo chown ec2-user:ec2-user "\$APP_DIR/.env" || true
           echo "[EC2] Docker login"
-          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin || true
-          echo "[EC2] Pulling $REMOTE_IMAGE"
-          docker pull "$REMOTE_IMAGE"
-          docker stop "$CONTAINER_NAME" 2>/dev/null || true
-          docker rm "$CONTAINER_NAME" 2>/dev/null || true
+          echo "\$GITHUB_TOKEN" | docker login ghcr.io -u "\$GITHUB_ACTOR" --password-stdin || true
+          echo "[EC2] Pulling \$REMOTE_IMAGE"
+          docker pull "\$REMOTE_IMAGE"
+          docker stop "\$CONTAINER_NAME" 2>/dev/null || true
+          docker rm "\$CONTAINER_NAME" 2>/dev/null || true
           echo "[EC2] Starting container"
-          docker run -d --name "$CONTAINER_NAME" --env-file "$APP_DIR/.env" -p "$HOST_PORT:$CONTAINER_PORT" --restart unless-stopped "$REMOTE_IMAGE"
+          docker run -d --name "\$CONTAINER_NAME" --env-file "\$APP_DIR/.env" -p "\$HOST_PORT:\$CONTAINER_PORT" --restart unless-stopped "\$REMOTE_IMAGE"
           docker image prune -f --filter until=168h || true
           echo "[EC2] Deployment complete"
           REMOTE_SCRIPT
