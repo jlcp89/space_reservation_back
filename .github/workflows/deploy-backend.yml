@@ -210,6 +210,8 @@ jobs:
           sudo mv /tmp/init-db.sql "\$APP_DIR/" || true
           sudo chown -R ec2-user:ec2-user "\$APP_DIR" || true
           cd "\$APP_DIR"
+          echo "[EC2] Loading environment variables"
+          export \$(grep -v '^#' .env | xargs)
           echo "[EC2] Docker login"
           echo "\$GITHUB_TOKEN" | docker login ghcr.io -u "\$GITHUB_ACTOR" --password-stdin || true
           echo "[EC2] Pulling \$REMOTE_IMAGE"
@@ -223,21 +225,21 @@ jobs:
           docker run -d --name "\$DB_CONTAINER_NAME" \
             --network workspace-network \
             --restart unless-stopped \
-            -e POSTGRES_DB=\${DB_NAME} \
-            -e POSTGRES_USER=\${DB_USER} \
-            -e POSTGRES_PASSWORD=\${DB_PASSWORD} \
+            -e POSTGRES_DB="\$DB_NAME" \
+            -e POSTGRES_USER="\$DB_USER" \
+            -e POSTGRES_PASSWORD="\$DB_PASSWORD" \
             -e PGDATA=/var/lib/postgresql/data/pgdata \
             -v postgres_data:/var/lib/postgresql/data/pgdata \
             -v "\$APP_DIR/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro" \
             -p "\$DB_PORT:5432" \
-            --health-cmd="pg_isready -U \${DB_USER} -d \${DB_NAME}" \
+            --health-cmd="pg_isready -U \$DB_USER -d \$DB_NAME" \
             --health-interval=10s \
             --health-timeout=5s \
             --health-retries=5 \
             postgres:15-alpine
           echo "[EC2] Waiting for database to be healthy"
           for i in {1..30}; do
-            if docker exec "\$DB_CONTAINER_NAME" pg_isready -U "\${DB_USER}" -d "\${DB_NAME}" >/dev/null 2>&1; then
+            if docker exec "\$DB_CONTAINER_NAME" pg_isready -U "\$DB_USER" -d "\$DB_NAME" >/dev/null 2>&1; then
               echo "Database is ready"; break
             fi
             echo "Waiting for database... (\$i/30)"
