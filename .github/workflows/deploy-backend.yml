@@ -250,7 +250,7 @@ jobs:
             --network workspace-network \
             --env-file "\$APP_DIR/.env" \
             -e DB_HOST="\$DB_CONTAINER_NAME" \
-            -p "\$HOST_PORT:\$CONTAINER_PORT" \
+            -p "\$HOST_PORT:3000" \
             --restart unless-stopped \
             "\$REMOTE_IMAGE"
           docker image prune -f --filter until=168h || true
