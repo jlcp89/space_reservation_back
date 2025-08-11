@@ -215,11 +215,42 @@ jobs:
           echo "[EC2] Pulling \$REMOTE_IMAGE"
           docker pull "\$REMOTE_IMAGE"
           echo "[EC2] Stopping existing containers"
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml down || true
-          echo "[EC2] Starting containers with docker compose"
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-          echo "[EC2] Waiting for database to be ready"
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T db pg_isready -U app_user -d app_db || sleep 10
+          docker stop "\$CONTAINER_NAME" "\$DB_CONTAINER_NAME" 2>/dev/null || true
+          docker rm "\$CONTAINER_NAME" "\$DB_CONTAINER_NAME" 2>/dev/null || true
+          echo "[EC2] Creating Docker network"
+          docker network create workspace-network 2>/dev/null || true
+          echo "[EC2] Starting PostgreSQL database"
+          docker run -d --name "\$DB_CONTAINER_NAME" \
+            --network workspace-network \
+            --restart unless-stopped \
+            -e POSTGRES_DB=\${DB_NAME} \
+            -e POSTGRES_USER=\${DB_USER} \
+            -e POSTGRES_PASSWORD=\${DB_PASSWORD} \
+            -e PGDATA=/var/lib/postgresql/data/pgdata \
+            -v postgres_data:/var/lib/postgresql/data/pgdata \
+            -v "\$APP_DIR/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro" \
+            -p "\$DB_PORT:5432" \
+            --health-cmd="pg_isready -U \${DB_USER} -d \${DB_NAME}" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            postgres:15-alpine
+          echo "[EC2] Waiting for database to be healthy"
+          for i in {1..30}; do
+            if docker exec "\$DB_CONTAINER_NAME" pg_isready -U "\${DB_USER}" -d "\${DB_NAME}" >/dev/null 2>&1; then
+              echo "Database is ready"; break
+            fi
+            echo "Waiting for database... (\$i/30)"
+            sleep 2
+          done
+          echo "[EC2] Starting API container"
+          docker run -d --name "\$CONTAINER_NAME" \
+            --network workspace-network \
+            --env-file "\$APP_DIR/.env" \
+            -e DB_HOST="\$DB_CONTAINER_NAME" \
+            -p "\$HOST_PORT:\$CONTAINER_PORT" \
+            --restart unless-stopped \
+            "\$REMOTE_IMAGE"
           docker image prune -f --filter until=168h || true
           echo "[EC2] Deployment complete"
           REMOTE_SCRIPT
