@@ -134,3 +134,6 @@ config/local.json
 # Application specific
 uploads/
 public/uploads/
+
+#Claude
+.claude/

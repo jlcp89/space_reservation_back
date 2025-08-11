@@ -20,7 +20,8 @@ const defaultOrigins = [
   'http://localhost:3000', 'http://127.0.0.1:3000',
   'http://localhost:3001', 'http://127.0.0.1:3001',
   'http://localhost:3002', 'http://127.0.0.1:3002',
-  'http://localhost', 'http://127.0.0.1'
+  'http://localhost', 'http://127.0.0.1',
+  'http://107.23.122.99', 'http://107.23.122.99:80'
 ];
 const extraOrigins = process.env.FRONTEND_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean) || [];
 const allowedOrigins = [...new Set([...defaultOrigins, ...extraOrigins])];
