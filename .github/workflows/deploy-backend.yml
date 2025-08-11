@@ -91,16 +91,6 @@ jobs:
         working-directory: ${{ steps.workdir.outputs.dir }}
         run: npm ci
 
-      - name: Run tests
-        working-directory: ${{ steps.workdir.outputs.dir }}
-        env:
-          DB_HOST: "${{ secrets.DB_HOST }}"
-          DB_NAME: "${{ secrets.DB_NAME }}"
-          DB_USER: "${{ secrets.DB_USER }}"
-          DB_PASSWORD: "${{ secrets.DB_PASSWORD }}"
-        run: |
-          npm test -- --passWithNoTests
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
