@@ -116,7 +116,7 @@ jobs:
 
   deploy:
     name: Deploy to EC2
-    needs: build-test-push
+    needs: build-test-pushh
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     environment: production
