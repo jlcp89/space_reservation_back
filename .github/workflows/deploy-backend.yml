@@ -32,7 +32,7 @@ permissions:
   id-token: write
 
 jobs:
-  build-test-pushh:
+  build-test-push:
     name: Build, Test & Push Image
     runs-on: ubuntu-latest
     outputs:
@@ -116,7 +116,7 @@ jobs:
 
   deploy:
     name: Deploy to EC2
-    needs: build-test-pushh
+    needs: build-test-push
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     environment: production
